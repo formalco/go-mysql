@@ -24,7 +24,7 @@ func (c *Conn) handleAuthSwitchResponse() error {
 }
 
 func (c *Conn) handleCachingSha2PasswordFullAuth(authData []byte) error {
-	if err := c.acquirePassword(); err != nil {
+	if err := c.acquireCredentials(); err != nil {
 		return err
 	}
 	if tlsConn, ok := c.Conn.Conn.(*tls.Conn); ok {
@@ -60,7 +60,7 @@ func (c *Conn) handleCachingSha2PasswordFullAuth(authData []byte) error {
 			authData = authData[:l-1]
 		}
 	}
-	err := c.checkSha2CacheCredentials(authData, c.credential)
+	err := c.checkSha2CacheCredentials(authData)
 	if err != nil {
 		return err
 	}
@@ -70,12 +70,15 @@ func (c *Conn) handleCachingSha2PasswordFullAuth(authData []byte) error {
 	return nil
 }
 
-func (c *Conn) checkSha2CacheCredentials(clientAuthData []byte, credential Credential) error {
-	match, err := auth.CheckHashingPassword([]byte(credential.Password), string(clientAuthData), mysql.AUTH_CACHING_SHA2_PASSWORD)
-	if match && err == nil {
-		return nil
+func (c *Conn) checkSha2CacheCredentials(clientAuthData []byte) error {
+	credentials := c.credentials[mysql.AUTH_CACHING_SHA2_PASSWORD]
+	for _, credential := range credentials {
+		match, err := auth.CheckHashingPassword([]byte(credential.Password), string(clientAuthData), mysql.AUTH_CACHING_SHA2_PASSWORD)
+		if match && err == nil {
+			return nil
+		}
 	}
-	return errAccessDenied(credential)
+	return errAccessDenied(credentials)
 }
 
 func (c *Conn) writeCachingSha2Cache(authData []byte) {

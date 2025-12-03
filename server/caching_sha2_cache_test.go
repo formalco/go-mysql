@@ -58,9 +58,9 @@ type RemoteThrottleProvider struct {
 	getCredCallCount atomic.Int64
 }
 
-func (m *RemoteThrottleProvider) GetCredential(username string) (credential Credential, found bool, err error) {
+func (m *RemoteThrottleProvider) GetCredentials(username string) (credentials []Credential, found bool, err error) {
 	m.getCredCallCount.Add(1)
-	return m.InMemoryProvider.GetCredential(username)
+	return m.InMemoryProvider.GetCredentials(username)
 }
 
 type cacheTestSuite struct {

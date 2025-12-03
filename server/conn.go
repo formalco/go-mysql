@@ -26,7 +26,7 @@ type Conn struct {
 
 	credentialProvider  CredentialProvider
 	user                string
-	credential          Credential
+	credentials         map[string][]Credential // keyed by AuthPluginName
 	cachingSha2FullAuth bool
 
 	h Handler

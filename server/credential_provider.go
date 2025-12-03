@@ -18,8 +18,8 @@ import (
 type CredentialProvider interface {
 	// check if the user exists
 	CheckUsername(username string) (bool, error)
-	// get user credential
-	GetCredential(username string) (credential Credential, found bool, err error)
+	// get user credentials (supports multiple valid credentials per user)
+	GetCredentials(username string) (credentials []Credential, found bool, err error)
 }
 
 func NewInMemoryProvider(defaultAuthMethod ...string) *InMemoryProvider {
@@ -82,14 +82,14 @@ func (m *InMemoryProvider) CheckUsername(username string) (found bool, err error
 	return ok, nil
 }
 
-func (m *InMemoryProvider) GetCredential(username string) (credential Credential, found bool, err error) {
+func (m *InMemoryProvider) GetCredentials(username string) (credentials []Credential, found bool, err error) {
 	v, ok := m.userPool.Load(username)
 	if !ok {
-		return Credential{}, false, nil
+		return nil, false, nil
 	}
-	c, valid := v.(Credential)
+	c, valid := v.([]Credential)
 	if !valid {
-		return Credential{}, true, errors.Errorf("invalid credential")
+		return nil, true, errors.Errorf("invalid credentials")
 	}
 	return c, true, nil
 }
@@ -105,7 +105,7 @@ func (m *InMemoryProvider) AddUser(username, password string, optionalAuthPlugin
 		return err
 	}
 
-	m.userPool.Store(username, c)
+	m.userPool.Store(username, []Credential{c})
 	return nil
 }
 
