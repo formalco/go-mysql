@@ -15,7 +15,7 @@ type DefaultAuthenticationProvider struct{}
 func (d *DefaultAuthenticationProvider) Authenticate(c *Conn, authPluginName string, clientAuthData []byte) error {
 	switch authPluginName {
 	case mysql.AUTH_NATIVE_PASSWORD:
-		return c.compareNativePasswordAuthData(clientAuthData, c.credential)
+		return c.compareNativePasswordAuthData(clientAuthData)
 
 	case mysql.AUTH_CACHING_SHA2_PASSWORD:
 		if !c.cachingSha2FullAuth {
@@ -38,7 +38,7 @@ func (d *DefaultAuthenticationProvider) Authenticate(c *Conn, authPluginName str
 		if !cont {
 			return nil
 		}
-		return c.compareSha256PasswordAuthData(clientAuthData, c.credential)
+		return c.compareSha256PasswordAuthData(clientAuthData)
 
 	default:
 		return errors.Errorf("unknown authentication plugin name '%s'", authPluginName)

@@ -25,7 +25,7 @@ import (
 // than the second connection (cache hit). Remember to set the password for MySQL user otherwise it won't cache empty password.
 func TestCachingSha2Cache(t *testing.T) {
 	remoteProvider := &RemoteThrottleProvider{
-		InMemoryProvider: NewInMemoryProvider(),
+		InMemoryAuthHandler: NewInMemoryAuthHandler(),
 	}
 	require.NoError(t, remoteProvider.AddUser(*testUser, *testPassword))
 	cacheServer := NewServer("8.0.12", mysql.DEFAULT_COLLATION_ID, mysql.AUTH_CACHING_SHA2_PASSWORD, test_keys.PubPem, tlsConf)
@@ -33,14 +33,14 @@ func TestCachingSha2Cache(t *testing.T) {
 	// no TLS
 	suite.Run(t, &cacheTestSuite{
 		server:       cacheServer,
-		credProvider: remoteProvider,
+		authHandler: remoteProvider,
 		tlsPara:      "false",
 	})
 }
 
 func TestCachingSha2CacheTLS(t *testing.T) {
 	remoteProvider := &RemoteThrottleProvider{
-		InMemoryProvider: NewInMemoryProvider(),
+		InMemoryAuthHandler: NewInMemoryAuthHandler(),
 	}
 	require.NoError(t, remoteProvider.AddUser(*testUser, *testPassword))
 	cacheServer := NewServer("8.0.12", mysql.DEFAULT_COLLATION_ID, mysql.AUTH_CACHING_SHA2_PASSWORD, test_keys.PubPem, tlsConf)
@@ -48,26 +48,26 @@ func TestCachingSha2CacheTLS(t *testing.T) {
 	// TLS
 	suite.Run(t, &cacheTestSuite{
 		server:       cacheServer,
-		credProvider: remoteProvider,
+		authHandler: remoteProvider,
 		tlsPara:      "skip-verify",
 	})
 }
 
 type RemoteThrottleProvider struct {
-	*InMemoryProvider
+	*InMemoryAuthHandler
 	getCredCallCount atomic.Int64
 }
 
-func (m *RemoteThrottleProvider) GetCredential(username string) (credential Credential, found bool, err error) {
+func (m *RemoteThrottleProvider) GetCredentials(username string) (credentials []Credential, found bool, err error) {
 	m.getCredCallCount.Add(1)
-	return m.InMemoryProvider.GetCredential(username)
+	return m.InMemoryAuthHandler.GetCredentials(username)
 }
 
 type cacheTestSuite struct {
 	suite.Suite
 	server       *Server
 	serverAddr   string
-	credProvider CredentialProvider
+	authHandler AuthHandler
 	tlsPara      string
 
 	db *sql.DB
@@ -107,7 +107,7 @@ func (s *cacheTestSuite) onAccept() {
 
 func (s *cacheTestSuite) onConn(conn net.Conn) {
 	// co, err := NewConn(conn, *testUser, *testPassword, &testHandler{s})
-	co, err := s.server.NewCustomizedConn(conn, s.credProvider, &testCacheHandler{s})
+	co, err := s.server.NewCustomizedConn(conn, s.authHandler, &testCacheHandler{s})
 	require.NoError(s.T(), err)
 	for {
 		err = co.HandleCommand()
@@ -134,7 +134,7 @@ func (s *cacheTestSuite) TestCache() {
 	require.NoError(s.T(), err)
 	s.db.SetMaxIdleConns(4)
 	s.runSelect()
-	got := s.credProvider.(*RemoteThrottleProvider).getCredCallCount.Load()
+	got := s.authHandler.(*RemoteThrottleProvider).getCredCallCount.Load()
 	require.Equal(s.T(), int64(1), got)
 
 	if s.db != nil {
@@ -146,7 +146,7 @@ func (s *cacheTestSuite) TestCache() {
 	require.NoError(s.T(), err)
 	s.db.SetMaxIdleConns(4)
 	s.runSelect()
-	got = s.credProvider.(*RemoteThrottleProvider).getCredCallCount.Load()
+	got = s.authHandler.(*RemoteThrottleProvider).getCredCallCount.Load()
 	require.Equal(s.T(), int64(2), got)
 
 	if s.db != nil {

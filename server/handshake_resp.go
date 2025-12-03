@@ -200,18 +200,25 @@ func (c *Conn) handlePublicKeyRetrieval(authData []byte) (bool, error) {
 func (c *Conn) handleAuthMatch() (bool, error) {
 	// if the client responds the handshake with a different auth method, the server will send the AuthSwitchRequest packet
 	// to the client to ask the client to switch.
-	if err := c.acquirePassword(); err != nil {
+	if err := c.acquireCredentials(); err != nil {
 		return false, err
 	}
 
-	if c.authPluginName != c.credential.AuthPluginName {
-		if err := c.writeAuthSwitchRequest(c.credential.AuthPluginName); err != nil {
+	// If we have credentials for the client's auth method, proceed
+	if _, ok := c.credentials[c.authPluginName]; ok {
+		return true, nil
+	}
+
+	// Otherwise, switch to an auth method we have credentials for
+	for method := range c.credentials {
+		if err := c.writeAuthSwitchRequest(method); err != nil {
 			return false, err
 		}
 		// handle AuthSwitchResponse
 		return false, c.handleAuthSwitchResponse()
 	}
-	return true, nil
+
+	return false, ErrAccessDenied
 }
 
 func (c *Conn) readAttributes(data []byte, pos int) (int, error) {
