@@ -44,37 +44,38 @@ type Credential struct {
 	AuthPluginName string
 }
 
-func NewCredential(password string, authPluginName string) (Credential, error) {
-	c := Credential{
-		AuthPluginName: authPluginName,
-	}
-
-	if password == "" {
-		c.Password = ""
-		return c, nil
+// Hash computes the password hash for the credential's auth plugin.
+func (c Credential) Hash() (string, error) {
+	if c.Password == "" {
+		return "", nil
 	}
 
 	switch c.AuthPluginName {
 	case mysql.AUTH_NATIVE_PASSWORD:
-		c.Password = mysql.EncodePasswordHex(mysql.NativePasswordHash([]byte(password)))
+		return mysql.EncodePasswordHex(mysql.NativePasswordHash([]byte(c.Password))), nil
 
 	case mysql.AUTH_CACHING_SHA2_PASSWORD:
-		c.Password = auth.NewHashPassword(password, mysql.AUTH_CACHING_SHA2_PASSWORD)
+		return auth.NewHashPassword(c.Password, mysql.AUTH_CACHING_SHA2_PASSWORD), nil
 
 	case mysql.AUTH_SHA256_PASSWORD:
-		hash, err := mysql.NewSha256PasswordHash(password)
-		if err != nil {
-			return c, err
-		}
-		c.Password = hash
+		return mysql.NewSha256PasswordHash(c.Password)
 
 	case mysql.AUTH_CLEAR_PASSWORD:
-		c.Password = password
+		return c.Password, nil
 
 	default:
-		return c, errors.Errorf("unknown authentication plugin name '%s'", c.AuthPluginName)
+		return "", errors.Errorf("unknown authentication plugin name '%s'", c.AuthPluginName)
 	}
-	return c, nil
+}
+
+func NewCredential(password string, authPluginName string) (Credential, error) {
+	if !isAuthMethodSupported(authPluginName) {
+		return Credential{}, errors.Errorf("unknown authentication plugin name '%s'", authPluginName)
+	}
+	return Credential{
+		Password:       password,
+		AuthPluginName: authPluginName,
+	}, nil
 }
 
 // InMemoryAuthHandler implements AuthHandler with in-memory credential storage.

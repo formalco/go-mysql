@@ -73,7 +73,11 @@ func (c *Conn) handleCachingSha2PasswordFullAuth(authData []byte) error {
 func (c *Conn) checkSha2CacheCredentials(clientAuthData []byte) error {
 	credentials := c.credentials[mysql.AUTH_CACHING_SHA2_PASSWORD]
 	for _, credential := range credentials {
-		match, err := auth.CheckHashingPassword([]byte(credential.Password), string(clientAuthData), mysql.AUTH_CACHING_SHA2_PASSWORD)
+		hash, err := credential.Hash()
+		if err != nil {
+			continue
+		}
+		match, err := auth.CheckHashingPassword([]byte(hash), string(clientAuthData), mysql.AUTH_CACHING_SHA2_PASSWORD)
 		if match && err == nil {
 			return nil
 		}

@@ -92,7 +92,11 @@ func scrambleValidation(cached, nonce, scramble []byte) bool {
 
 func (c *Conn) compareNativePasswordAuthData(clientAuthData []byte) error {
 	for _, credential := range c.credentials[mysql.AUTH_NATIVE_PASSWORD] {
-		password, err := mysql.DecodePasswordHex(credential.Password)
+		hash, err := credential.Hash()
+		if err != nil {
+			continue
+		}
+		password, err := mysql.DecodePasswordHex(hash)
 		if err != nil {
 			continue
 		}
@@ -136,7 +140,11 @@ func (c *Conn) compareSha256PasswordAuthData(clientAuthData []byte) error {
 		}
 	}
 	for _, credential := range credentials {
-		check, err := mysql.Check256HashingPassword([]byte(credential.Password), string(clientAuthData))
+		hash, err := credential.Hash()
+		if err != nil {
+			continue
+		}
+		check, err := mysql.Check256HashingPassword([]byte(hash), string(clientAuthData))
 		if err != nil {
 			continue
 		}
