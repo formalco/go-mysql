@@ -18,12 +18,12 @@ func (p *cachingSHA2OnlyAuthenticationProvider) Validate(authPluginName string) 
 	return authPluginName == mysql.AUTH_CACHING_SHA2_PASSWORD
 }
 
-func TestHandleAuthMatchValidatesClientPlugin(t *testing.T) {
+func TestHandleAuthMatchValidatesCredentialPlugin(t *testing.T) {
 	provider := &cachingSHA2OnlyAuthenticationProvider{}
 
 	t.Run("rejects disallowed plugin", func(t *testing.T) {
 		c := &Conn{
-			authPluginName: mysql.AUTH_NATIVE_PASSWORD,
+			authPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD,
 			credential: Credential{
 				Passwords:      []string{"secret"},
 				AuthPluginName: mysql.AUTH_NATIVE_PASSWORD,
