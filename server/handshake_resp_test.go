@@ -10,6 +10,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type cachingSHA2OnlyAuthenticationProvider struct {
+	DefaultAuthenticationProvider
+}
+
+func (p *cachingSHA2OnlyAuthenticationProvider) Validate(authPluginName string) bool {
+	return authPluginName == mysql.AUTH_CACHING_SHA2_PASSWORD
+}
+
+func TestHandleAuthMatchValidatesClientPlugin(t *testing.T) {
+	provider := &cachingSHA2OnlyAuthenticationProvider{}
+
+	t.Run("rejects disallowed plugin", func(t *testing.T) {
+		c := &Conn{
+			authPluginName: mysql.AUTH_NATIVE_PASSWORD,
+			credential: Credential{
+				Passwords:      []string{"secret"},
+				AuthPluginName: mysql.AUTH_NATIVE_PASSWORD,
+			},
+			serverConf: &Server{authProvider: provider},
+		}
+
+		matched, err := c.handleAuthMatch()
+		require.ErrorContains(t, err, mysql.AUTH_NATIVE_PASSWORD)
+		require.False(t, matched)
+	})
+
+	t.Run("accepts allowed plugin", func(t *testing.T) {
+		c := &Conn{
+			authPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD,
+			credential: Credential{
+				Passwords:      []string{"secret"},
+				AuthPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD,
+			},
+			serverConf: &Server{authProvider: provider},
+		}
+
+		matched, err := c.handleAuthMatch()
+		require.NoError(t, err)
+		require.True(t, matched)
+	})
+}
+
 func TestReadAuthData(t *testing.T) {
 	c := &Conn{
 		capability: mysql.CLIENT_PLUGIN_AUTH_LENENC_CLIENT_DATA,

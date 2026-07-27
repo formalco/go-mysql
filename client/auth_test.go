@@ -1,14 +1,14 @@
 package client
 
 import (
+	"errors"
 	"net"
 	"testing"
 
-	"github.com/pingcap/tidb/pkg/parser/charset"
-	"github.com/stretchr/testify/require"
-
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/packet"
+	"github.com/pingcap/tidb/pkg/parser/charset"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConnGenAttributes(t *testing.T) {
@@ -85,6 +85,32 @@ func TestConnCollation(t *testing.T) {
 
 		require.NoError(t, server.Close())
 	}
+}
+
+func TestConnAuthPluginPolicy(t *testing.T) {
+	policyErr := errors.New("authentication plugin rejected")
+	c := &Conn{
+		authPluginName: mysql.AUTH_NATIVE_PASSWORD,
+		password:       "secret",
+	}
+	c.SetAuthPluginValidator(func(authPluginName string) error {
+		if authPluginName != mysql.AUTH_CACHING_SHA2_PASSWORD {
+			return policyErr
+		}
+		return nil
+	})
+
+	_, _, err := c.genAuthResponse(make([]byte, 20))
+	require.ErrorIs(t, err, policyErr)
+
+	require.NoError(t, c.SetAuthPlugin(mysql.AUTH_CACHING_SHA2_PASSWORD))
+	c.authPluginName = c.authPlugin
+	response, addNUL, err := c.genAuthResponse(make([]byte, 20))
+	require.NoError(t, err)
+	require.Len(t, response, 32)
+	require.False(t, addNUL)
+
+	require.Error(t, c.SetAuthPlugin("unsupported"))
 }
 
 func sendAuthResponse(t *testing.T, collation string) net.Conn {
