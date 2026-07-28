@@ -605,7 +605,7 @@ func TestBuildSimpleBinaryResultsetFirstRowNilPromotion(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Equal(t, byte(MYSQL_TYPE_LONGLONG), rs.Fields[0].Type,
+	require.Equal(t, MYSQL_TYPE_LONGLONG, rs.Fields[0].Type,
 		"column type must be promoted from NULL to LONGLONG when first non-nil arrives")
 	require.Len(t, rs.RowDatas, 2)
 

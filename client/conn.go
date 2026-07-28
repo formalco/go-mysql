@@ -16,12 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pingcap/errors"
-	"github.com/pingcap/tidb/pkg/parser/charset"
-
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/packet"
 	"github.com/go-mysql-org/go-mysql/utils"
+	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/pkg/parser/charset"
 )
 
 const defaultBufferSize = 65536 // 64kb
@@ -61,8 +60,10 @@ type Conn struct {
 	// sets the collation to be set on the auth handshake, this does not issue a 'set names' command
 	collation string
 
-	salt           []byte
-	authPluginName string
+	salt              []byte
+	authPluginName    string
+	initialAuthPlugin string
+	authValidator     func(string) error
 
 	connectionID uint32
 
@@ -273,6 +274,22 @@ func (c *Conn) UseSSL(insecureSkipVerify bool) {
 // pass to options when connect
 func (c *Conn) SetTLSConfig(config *tls.Config) {
 	c.tlsConfig = config
+}
+
+// SetAuthPlugin requires the client to use authPluginName for the initial
+// authentication response instead of the plugin advertised by the server.
+func (c *Conn) SetAuthPlugin(authPluginName string) error {
+	if !authPluginAllowed(authPluginName) {
+		return fmt.Errorf("auth plugin %q is not supported", authPluginName)
+	}
+	c.initialAuthPlugin = authPluginName
+	return nil
+}
+
+// SetAuthPluginValidator validates every authentication plugin before the
+// client generates a response, including plugins requested by auth switches.
+func (c *Conn) SetAuthPluginValidator(validator func(string) error) {
+	c.authValidator = validator
 }
 
 func (c *Conn) UseDB(dbName string) error {

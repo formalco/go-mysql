@@ -146,6 +146,9 @@ func (c *Conn) readInitialHandshake() error {
 	if c.authPluginName == "" {
 		c.authPluginName = defaultAuthPluginName
 	}
+	if c.initialAuthPlugin != "" {
+		c.authPluginName = c.initialAuthPlugin
+	}
 
 	return nil
 }
@@ -157,6 +160,12 @@ func (c *Conn) readInitialHandshake() error {
 // here the \NUL needs to be added when sending back the empty password or cleartext password in 'sha256_password'
 // authentication.
 func (c *Conn) genAuthResponse(authData []byte) ([]byte, bool, error) {
+	if c.authValidator != nil {
+		if err := c.authValidator(c.authPluginName); err != nil {
+			return nil, false, err
+		}
+	}
+
 	// password hashing
 	switch c.authPluginName {
 	case mysql.AUTH_NATIVE_PASSWORD:

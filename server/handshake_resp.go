@@ -225,6 +225,9 @@ func (c *Conn) handleAuthMatch() (bool, error) {
 	if err := c.acquireCredential(); err != nil {
 		return false, err
 	}
+	if !c.serverConf.authProvider.Validate(c.credential.AuthPluginName) {
+		return false, errors.Errorf("unknown authentication plugin name '%s'", c.credential.AuthPluginName)
+	}
 
 	if c.authPluginName != c.credential.AuthPluginName {
 		if err := c.writeAuthSwitchRequest(c.credential.AuthPluginName); err != nil {
