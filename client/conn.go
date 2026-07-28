@@ -36,6 +36,8 @@ type Conn struct {
 	tlsConfig *tls.Config
 	proto     string
 
+	underlyingConnectionEncrypted bool
+
 	// Connection read and write timeouts to set on the connection
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
@@ -274,6 +276,18 @@ func (c *Conn) UseSSL(insecureSkipVerify bool) {
 // pass to options when connect
 func (c *Conn) SetTLSConfig(config *tls.Config) {
 	c.tlsConfig = config
+}
+
+// SetUnderlyingConnectionEncrypted declares that the connection returned by
+// the dialer is already encrypted. When enabled, authentication plugins may
+// send plaintext credentials over that connection. It does not initiate a TLS
+// handshake or advertise CLIENT_SSL.
+func (c *Conn) SetUnderlyingConnectionEncrypted(encrypted bool) {
+	c.underlyingConnectionEncrypted = encrypted
+}
+
+func (c *Conn) isSecureTransport() bool {
+	return c.tlsConfig != nil || c.proto == "unix" || c.underlyingConnectionEncrypted
 }
 
 // SetAuthPlugin requires the client to use authPluginName for the initial
