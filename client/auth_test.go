@@ -104,7 +104,7 @@ func TestConnAuthPluginPolicy(t *testing.T) {
 	require.ErrorIs(t, err, policyErr)
 
 	require.NoError(t, c.SetAuthPlugin(mysql.AUTH_CACHING_SHA2_PASSWORD))
-	c.authPluginName = c.authPlugin
+	c.authPluginName = c.initialAuthPlugin
 	response, addNUL, err := c.genAuthResponse(make([]byte, 20))
 	require.NoError(t, err)
 	require.Len(t, response, 32)

@@ -146,8 +146,8 @@ func (c *Conn) readInitialHandshake() error {
 	if c.authPluginName == "" {
 		c.authPluginName = defaultAuthPluginName
 	}
-	if c.authPlugin != "" {
-		c.authPluginName = c.authPlugin
+	if c.initialAuthPlugin != "" {
+		c.authPluginName = c.initialAuthPlugin
 	}
 
 	return nil

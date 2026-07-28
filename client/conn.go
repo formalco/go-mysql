@@ -60,10 +60,10 @@ type Conn struct {
 	// sets the collation to be set on the auth handshake, this does not issue a 'set names' command
 	collation string
 
-	salt           []byte
-	authPluginName string
-	authPlugin     string
-	authValidator  func(string) error
+	salt              []byte
+	authPluginName    string
+	initialAuthPlugin string
+	authValidator     func(string) error
 
 	connectionID uint32
 
@@ -282,7 +282,7 @@ func (c *Conn) SetAuthPlugin(authPluginName string) error {
 	if !authPluginAllowed(authPluginName) {
 		return fmt.Errorf("auth plugin %q is not supported", authPluginName)
 	}
-	c.authPlugin = authPluginName
+	c.initialAuthPlugin = authPluginName
 	return nil
 }
 
