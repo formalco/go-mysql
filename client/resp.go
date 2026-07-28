@@ -8,10 +8,9 @@ import (
 	"encoding/pem"
 	"fmt"
 
-	"github.com/pingcap/errors"
-
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/utils"
+	"github.com/pingcap/errors"
 )
 
 func (c *Conn) isEOFPacket(data []byte) bool {
@@ -212,7 +211,7 @@ func (c *Conn) handleAuthResult() error {
 			return err
 		case mysql.CACHE_SHA2_FULL_AUTH:
 			// need full authentication
-			if c.tlsConfig != nil || c.proto == "unix" {
+			if c.isSecureTransport() {
 				if err = c.WriteClearAuthPacket(c.password); err != nil {
 					return err
 				}

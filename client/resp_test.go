@@ -1,9 +1,11 @@
 package client
 
 import (
+	"net"
 	"testing"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/packet"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,6 +79,48 @@ func TestDecodeSessionTrackingLargeValues(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, longVar, decoded.Variables["long_var"])
 	require.Equal(t, longGTID, decoded.GTID)
+}
+
+func TestCachingSHA2FullAuthOverEncryptedConnection(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	server := packet.NewConn(serverConn)
+	client := &Conn{
+		Conn:           packet.NewConn(clientConn),
+		authPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD,
+		password:       "secret",
+		proto:          "tcp",
+	}
+	client.SetUnderlyingConnectionEncrypted(true)
+
+	type exchangeResult struct {
+		authResponse []byte
+		err          error
+	}
+	result := make(chan exchangeResult, 1)
+	go func() {
+		fullAuth := append(make([]byte, 4), mysql.MORE_DATE_HEADER, mysql.CACHE_SHA2_FULL_AUTH)
+		if err := server.WritePacket(fullAuth); err != nil {
+			result <- exchangeResult{err: err}
+			return
+		}
+
+		authResponse, err := server.ReadPacket()
+		if err != nil {
+			result <- exchangeResult{err: err}
+			return
+		}
+
+		ok := append(make([]byte, 4), mysql.OK_HEADER, 0, 0)
+		result <- exchangeResult{authResponse: authResponse, err: server.WritePacket(ok)}
+	}()
+
+	require.NoError(t, client.handleAuthResult())
+	exchange := <-result
+	require.NoError(t, exchange.err)
+	require.Equal(t, []byte("secret\x00"), exchange.authResponse)
 }
 
 func TestHandleOKPacket(t *testing.T) {

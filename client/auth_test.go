@@ -113,6 +113,28 @@ func TestConnAuthPluginPolicy(t *testing.T) {
 	require.Error(t, c.SetAuthPlugin("unsupported"))
 }
 
+func TestUnderlyingConnectionEncrypted(t *testing.T) {
+	c := &Conn{
+		authPluginName: mysql.AUTH_SHA256_PASSWORD,
+		password:       "secret",
+		proto:          "tcp",
+	}
+
+	response, addNUL, err := c.genAuthResponse(nil)
+	require.NoError(t, err)
+	require.Equal(t, []byte{1}, response)
+	require.False(t, addNUL)
+
+	c.SetUnderlyingConnectionEncrypted(true)
+	response, addNUL, err = c.genAuthResponse(nil)
+	require.NoError(t, err)
+	require.Equal(t, []byte("secret"), response)
+	require.True(t, addNUL)
+
+	c.SetUnderlyingConnectionEncrypted(false)
+	require.False(t, c.isSecureTransport())
+}
+
 func sendAuthResponse(t *testing.T, collation string) net.Conn {
 	server, client := net.Pipe()
 	c := &Conn{

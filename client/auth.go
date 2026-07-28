@@ -178,7 +178,7 @@ func (c *Conn) genAuthResponse(authData []byte) ([]byte, bool, error) {
 		if len(c.password) == 0 {
 			return nil, true, nil
 		}
-		if c.tlsConfig != nil || c.proto == "unix" {
+		if c.isSecureTransport() {
 			// write cleartext auth packet
 			// see: https://dev.mysql.com/doc/refman/8.0/en/sha256-pluggable-authentication.html
 			return []byte(c.password), true, nil
