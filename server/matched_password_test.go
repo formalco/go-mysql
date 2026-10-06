@@ -141,8 +141,6 @@ func TestMatchedPasswordIndexHandshake(t *testing.T) {
 func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 	for _, useTLS := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tls=%t", useTLS), func(t *testing.T) {
-			s := NewServer("8.0.12", mysql.DEFAULT_COLLATION_ID, mysql.AUTH_CACHING_SHA2_PASSWORD, test_keys.RSAKey(), tlsConf)
-			l := newMatchedPasswordListener(t)
 			cases := []struct {
 				name      string
 				passwords []string
@@ -151,16 +149,25 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 				matched   bool
 				fullAuth  bool
 			}{
-				{"populate_cache", []string{"other", "selected"}, "selected", 1, true, true},
 				{"cache_hit", []string{"other", "selected"}, "selected", 1, true, false},
 				{"reordered", []string{"selected", "other"}, "selected", 0, true, false},
 				{"duplicates", []string{"other", "selected", "selected"}, "selected", 1, true, false},
 				{"removed", []string{"replacement", "other"}, "selected", 0, false, true},
-				{"different_password", []string{"replacement", "other"}, "other", 1, true, true},
-				{"new_cache_hit", []string{"replacement", "other"}, "other", 1, true, false},
+				{"replacement", []string{"replacement", "other"}, "other", 1, true, true},
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
+					s := NewServer("8.0.12", mysql.DEFAULT_COLLATION_ID, mysql.AUTH_CACHING_SHA2_PASSWORD, test_keys.RSAKey(), tlsConf)
+					l := newMatchedPasswordListener(t)
+					warmup := &matchedPasswordHandler{credential: Credential{
+						Passwords: []string{"other", "selected"}, AuthPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD,
+					}}
+					require.NoError(t, runMatchedPasswordHandshake(t, s, l, warmup, "selected", useTLS))
+					require.True(t, warmup.success)
+					require.True(t, warmup.matched)
+					require.Equal(t, 1, warmup.index)
+					require.True(t, warmup.fullAuth)
+
 					h := &matchedPasswordHandler{credential: Credential{Passwords: tc.passwords, AuthPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD}}
 					err := runMatchedPasswordHandshake(t, s, l, h, tc.password, useTLS)
 					if tc.matched {
@@ -172,6 +179,16 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 					require.Equal(t, tc.matched, h.matched)
 					require.Equal(t, tc.index, h.index)
 					require.Equal(t, tc.fullAuth, h.fullAuth)
+
+					if tc.name == "replacement" {
+						// The replacement must populate the cache for the next connection.
+						next := &matchedPasswordHandler{credential: h.credential}
+						require.NoError(t, runMatchedPasswordHandshake(t, s, l, next, tc.password, useTLS))
+						require.True(t, next.success)
+						require.True(t, next.matched)
+						require.Equal(t, tc.index, next.index)
+						require.False(t, next.fullAuth)
+					}
 				})
 			}
 		})
