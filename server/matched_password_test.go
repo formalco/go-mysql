@@ -40,15 +40,27 @@ func (h *matchedPasswordHandler) OnAuthFailure(c *Conn, _ error) {
 	h.fullAuth = c.cachingSha2FullAuth
 }
 
-// Run a real client/server handshake without requiring an external database.
-// Each connection uses a fresh handler, while callers may share a Server to
-// exercise its authentication cache across connections.
-func runMatchedPasswordHandshake(t *testing.T, s *Server, h *matchedPasswordHandler, password string, useTLS bool) error {
+func newMatchedPasswordListener(t *testing.T) *net.TCPListener {
 	t.Helper()
-	serverConn, clientConn := net.Pipe()
-	defer serverConn.Close()
-	defer clientConn.Close()
+	l, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	require.NoError(t, err)
+	t.Cleanup(func() { l.Close() })
+	return l
+}
+
+// TCP buffering lets both TLS peers send close_notify on failed handshakes.
+// Reuse the listener and Server across cache tests to keep the cache key's
+// local address stable. Each connection uses a fresh authentication handler.
+func runMatchedPasswordHandshake(t *testing.T, s *Server, l *net.TCPListener, h *matchedPasswordHandler, password string, useTLS bool) error {
+	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
+	require.NoError(t, l.SetDeadline(deadline))
+	clientConn, err := net.DialTimeout("tcp", l.Addr().String(), 5*time.Second)
+	require.NoError(t, err)
+	defer clientConn.Close()
+	serverConn, err := l.Accept()
+	require.NoError(t, err)
+	defer serverConn.Close()
 	require.NoError(t, serverConn.SetDeadline(deadline))
 	require.NoError(t, clientConn.SetDeadline(deadline))
 	done := make(chan error, 1)
@@ -65,11 +77,10 @@ func runMatchedPasswordHandshake(t *testing.T, s *Server, h *matchedPasswordHand
 			return nil
 		})
 	}
-	c, clientErr := client.ConnectWithDialer(context.Background(), "tcp", "pipe", "user", password, "",
+	c, clientErr := client.ConnectWithDialer(context.Background(), "tcp", l.Addr().String(), "user", password, "",
 		func(context.Context, string, string) (net.Conn, error) { return clientConn, nil }, options...)
 	if c != nil {
-		// Close the pipe directly to avoid waiting for TLS close notifications.
-		clientConn.Close()
+		c.Close()
 	}
 	serverErr := <-done
 	if clientErr == nil {
@@ -109,8 +120,9 @@ func TestMatchedPasswordIndexHandshake(t *testing.T) {
 							}
 						}
 						s := NewServer("8.0.12", mysql.DEFAULT_COLLATION_ID, initialMethod, test_keys.RSAKey(), tlsConf)
+						l := newMatchedPasswordListener(t)
 						h := &matchedPasswordHandler{credential: Credential{Passwords: tc.passwords, AuthPluginName: method}}
-						err := runMatchedPasswordHandshake(t, s, h, tc.password, useTLS)
+						err := runMatchedPasswordHandshake(t, s, l, h, tc.password, useTLS)
 						if tc.matched {
 							require.NoError(t, err)
 						} else {
@@ -130,6 +142,7 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 	for _, useTLS := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tls=%t", useTLS), func(t *testing.T) {
 			s := NewServer("8.0.12", mysql.DEFAULT_COLLATION_ID, mysql.AUTH_CACHING_SHA2_PASSWORD, test_keys.RSAKey(), tlsConf)
+			l := newMatchedPasswordListener(t)
 			cases := []struct {
 				name      string
 				passwords []string
@@ -149,7 +162,7 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
 					h := &matchedPasswordHandler{credential: Credential{Passwords: tc.passwords, AuthPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD}}
-					err := runMatchedPasswordHandshake(t, s, h, tc.password, useTLS)
+					err := runMatchedPasswordHandshake(t, s, l, h, tc.password, useTLS)
 					if tc.matched {
 						require.NoError(t, err)
 					} else {
@@ -165,13 +178,14 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 	}
 }
 
-func TestMatchedPasswordIndexPolicyRejection(t *testing.T) {
+func TestMatchedPasswordIndexOnAuthSuccessRejection(t *testing.T) {
 	s := NewServer("8.0.12", mysql.DEFAULT_COLLATION_ID, mysql.AUTH_NATIVE_PASSWORD, nil, nil)
+	l := newMatchedPasswordListener(t)
 	h := &matchedPasswordHandler{
 		credential: Credential{Passwords: []string{"other", "selected"}, AuthPluginName: mysql.AUTH_NATIVE_PASSWORD},
-		reject:     errors.New("rejected by session policy"),
+		reject:     errors.New("rejected by OnAuthSuccess"),
 	}
-	err := runMatchedPasswordHandshake(t, s, h, "selected", false)
+	err := runMatchedPasswordHandshake(t, s, l, h, "selected", false)
 	require.ErrorContains(t, err, h.reject.Error())
 	require.True(t, h.success)
 	require.True(t, h.matched)

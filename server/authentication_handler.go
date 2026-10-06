@@ -10,10 +10,10 @@ import (
 
 // AuthenticationHandler provides user credentials and authentication lifecycle hooks.
 //
-// # Important Note
-//
-// if the password in a third-party auth handler could be updated at runtime, we have to invalidate the caching
-// for 'caching_sha2_password' by calling 'func (s *Server)InvalidateCache(string, string)'.
+// The default authentication provider checks caching_sha2_password cache hits
+// against the credentials returned for each connection. Handlers must exclude
+// revoked or expired passwords from GetCredential. Server.InvalidateCache can
+// also be used to force full authentication on the next connection.
 type AuthenticationHandler interface {
 	// GetCredential returns the user credential (supports multiple valid passwords per user).
 	// Implementations must be safe for concurrent use.
