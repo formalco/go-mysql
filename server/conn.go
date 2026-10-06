@@ -24,10 +24,12 @@ type Conn struct {
 	warnings       uint16
 	salt           []byte // should be 8 + 12 for auth-plugin-data-part-1 and auth-plugin-data-part-2
 
-	authHandler         AuthenticationHandler
-	user                string
-	credential          Credential
-	cachingSha2FullAuth bool
+	authHandler          AuthenticationHandler
+	user                 string
+	credential           Credential
+	cachingSha2FullAuth  bool
+	matchedPasswordIndex int
+	passwordMatched      bool
 
 	h Handler
 
@@ -139,6 +141,17 @@ func (c *Conn) Closed() bool {
 
 func (c *Conn) GetUser() string {
 	return c.user
+}
+
+// MatchedPasswordIndex returns the index of the password verified by the default
+// authentication provider in the Credential.Passwords returned for this connection.
+// The index is available in AuthenticationHandler.OnAuthSuccess. If multiple
+// entries contain the same password, the first matching index is returned.
+// ok is false if no password match was recorded, including when a custom
+// authentication provider does not delegate verification to the default provider.
+// A match does not mean that OnAuthSuccess has accepted the connection.
+func (c *Conn) MatchedPasswordIndex() (index int, ok bool) {
+	return c.matchedPasswordIndex, c.passwordMatched
 }
 
 func (c *Conn) Capability() uint32 {

@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"fmt"
+	"slices"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/pingcap/errors"
@@ -29,6 +30,8 @@ func isEmptyPassword(authData []byte) bool {
 }
 
 func (c *Conn) compareAuthData(authPluginName string, clientAuthData []byte) error {
+	c.matchedPasswordIndex, c.passwordMatched = 0, false
+
 	if authPluginName != c.credential.AuthPluginName {
 		err := c.writeAuthSwitchRequest(c.credential.AuthPluginName)
 		if err != nil {
@@ -37,7 +40,11 @@ func (c *Conn) compareAuthData(authPluginName string, clientAuthData []byte) err
 		return c.handleAuthSwitchResponse()
 	}
 
-	return c.serverConf.authProvider.Authenticate(c, authPluginName, clientAuthData)
+	err := c.serverConf.authProvider.Authenticate(c, authPluginName, clientAuthData)
+	if err != nil {
+		c.matchedPasswordIndex, c.passwordMatched = 0, false
+	}
+	return err
 }
 
 func (c *Conn) acquireCredential() error {
@@ -77,13 +84,10 @@ func scrambleValidation(cached, nonce, scramble []byte) bool {
 
 func (c *Conn) compareNativePasswordAuthData(clientAuthData []byte, credential Credential) error {
 	if isEmptyPassword(clientAuthData) {
-		if credential.hasEmptyPassword() {
-			return nil
-		}
-		return ErrAccessDeniedNoPassword
+		return c.compareEmptyPassword(credential)
 	}
 
-	for _, password := range credential.Passwords {
+	for i, password := range credential.Passwords {
 		hash, err := credential.hashPassword(password)
 		if err != nil {
 			continue
@@ -93,6 +97,7 @@ func (c *Conn) compareNativePasswordAuthData(clientAuthData []byte, credential C
 			continue
 		}
 		if mysql.CompareNativePassword(clientAuthData, decoded, c.salt) {
+			c.matchedPasswordIndex, c.passwordMatched = i, true
 			return nil
 		}
 	}
@@ -101,10 +106,7 @@ func (c *Conn) compareNativePasswordAuthData(clientAuthData []byte, credential C
 
 func (c *Conn) compareSha256PasswordAuthData(clientAuthData []byte, credential Credential) error {
 	if isEmptyPassword(clientAuthData) {
-		if credential.hasEmptyPassword() {
-			return nil
-		}
-		return ErrAccessDeniedNoPassword
+		return c.compareEmptyPassword(credential)
 	}
 	if tlsConn, ok := c.Conn.Conn.(*tls.Conn); ok {
 		if !tlsConn.ConnectionState().HandshakeComplete {
@@ -130,7 +132,7 @@ func (c *Conn) compareSha256PasswordAuthData(clientAuthData []byte, credential C
 			clientAuthData = clientAuthData[:l-1]
 		}
 	}
-	for _, password := range credential.Passwords {
+	for i, password := range credential.Passwords {
 		hash, err := credential.hashPassword(password)
 		if err != nil {
 			continue
@@ -140,6 +142,7 @@ func (c *Conn) compareSha256PasswordAuthData(clientAuthData []byte, credential C
 			continue
 		}
 		if check {
+			c.matchedPasswordIndex, c.passwordMatched = i, true
 			return nil
 		}
 	}
@@ -148,10 +151,7 @@ func (c *Conn) compareSha256PasswordAuthData(clientAuthData []byte, credential C
 
 func (c *Conn) compareCacheSha2PasswordAuthData(clientAuthData []byte) error {
 	if isEmptyPassword(clientAuthData) {
-		if c.credential.hasEmptyPassword() {
-			return nil
-		}
-		return ErrAccessDeniedNoPassword
+		return c.compareEmptyPassword(c.credential)
 	}
 	// the caching of 'caching_sha2_password' in MySQL, see: https://dev.mysql.com/worklog/task/?id=9591
 	// check if we have a cached value
@@ -159,14 +159,34 @@ func (c *Conn) compareCacheSha2PasswordAuthData(clientAuthData []byte) error {
 	if ok {
 		// Scramble validation
 		if scrambleValidation(cached.([]byte), c.salt, clientAuthData) {
-			// 'fast' auth: write "More data" packet (first byte == 0x01) with the second byte = 0x03
-			return c.writeAuthMoreDataFastAuth()
+			// Resolve against this connection's credentials: a cached index could
+			// refer to a different password after credentials are reordered or removed.
+			for i, password := range c.credential.Passwords {
+				first := sha256.Sum256([]byte(password))
+				second := sha256.Sum256(first[:])
+				if subtle.ConstantTimeCompare(second[:], cached.([]byte)) == 1 {
+					// 'fast' auth: write "More data" packet (first byte == 0x01) with the second byte = 0x03
+					if err := c.writeAuthMoreDataFastAuth(); err != nil {
+						return err
+					}
+					c.matchedPasswordIndex, c.passwordMatched = i, true
+					return nil
+				}
+			}
 		}
 	}
-	// cache miss or validation failed, do full auth
+	// Cache miss, validation failed, or the cached password is no longer valid: do full auth.
 	if err := c.writeAuthMoreDataFullAuth(); err != nil {
 		return err
 	}
 	c.cachingSha2FullAuth = true
 	return nil
+}
+
+func (c *Conn) compareEmptyPassword(credential Credential) error {
+	if i := slices.Index(credential.Passwords, ""); i >= 0 {
+		c.matchedPasswordIndex, c.passwordMatched = i, true
+		return nil
+	}
+	return ErrAccessDeniedNoPassword
 }
