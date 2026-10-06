@@ -75,19 +75,17 @@ func (c *Conn) handleCachingSha2PasswordFullAuth(authData []byte) error {
 
 func (c *Conn) checkSha2CacheCredentials(clientAuthData []byte, credential Credential) error {
 	if isEmptyPassword(clientAuthData) {
-		if credential.hasEmptyPassword() {
-			return nil
-		}
-		return ErrAccessDeniedNoPassword
+		return c.compareEmptyPassword(credential)
 	}
 
-	for _, password := range credential.Passwords {
+	for i, password := range credential.Passwords {
 		hash, err := credential.hashPassword(password)
 		if err != nil {
 			continue
 		}
 		match, err := auth.CheckHashingPassword([]byte(hash), string(clientAuthData), mysql.AUTH_CACHING_SHA2_PASSWORD)
 		if match && err == nil {
+			c.matchedPasswordIndex, c.passwordMatched = i, true
 			return nil
 		}
 	}

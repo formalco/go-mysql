@@ -1,7 +1,6 @@
 package server
 
 import (
-	"slices"
 	"sync"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -11,16 +10,18 @@ import (
 
 // AuthenticationHandler provides user credentials and authentication lifecycle hooks.
 //
-// # Important Note
-//
-// if the password in a third-party auth handler could be updated at runtime, we have to invalidate the caching
-// for 'caching_sha2_password' by calling 'func (s *Server)InvalidateCache(string, string)'.
+// The default authentication provider checks caching_sha2_password cache hits
+// against the credentials returned for each connection. Handlers must exclude
+// revoked or expired passwords from GetCredential. Server.InvalidateCache can
+// also be used to force full authentication on the next connection.
 type AuthenticationHandler interface {
 	// GetCredential returns the user credential (supports multiple valid passwords per user).
 	// Implementations must be safe for concurrent use.
+	// The returned Passwords slice must remain unchanged during authentication.
 	GetCredential(username string) (credential Credential, found bool, err error)
 
 	// OnAuthSuccess is called after successful authentication, before the OK packet.
+	// Conn.MatchedPasswordIndex identifies the password verified by the default provider.
 	// Return an error to reject the connection (error will be sent to client instead of OK).
 	// Return nil to proceed with sending the OK packet.
 	OnAuthSuccess(conn *Conn) error
@@ -72,11 +73,6 @@ func (c Credential) hashPassword(password string) (string, error) {
 	default:
 		return "", errors.Errorf("unknown authentication plugin name '%s'", c.AuthPluginName)
 	}
-}
-
-// hasEmptyPassword returns true if any password in the credential is empty.
-func (c Credential) hasEmptyPassword() bool {
-	return slices.Contains(c.Passwords, "")
 }
 
 // InMemoryAuthenticationHandler implements AuthenticationHandler with in-memory credential storage.
