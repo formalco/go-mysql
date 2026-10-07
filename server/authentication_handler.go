@@ -21,7 +21,7 @@ type AuthenticationHandler interface {
 	GetCredential(username string) (credential Credential, found bool, err error)
 
 	// OnAuthSuccess is called after successful authentication, before the OK packet.
-	// Conn.MatchedPasswordIndex identifies the password verified by the default provider.
+	// Conn.MatchedPassword identifies the password verified by the default provider.
 	// Return an error to reject the connection (error will be sent to client instead of OK).
 	// Return nil to proceed with sending the OK packet.
 	OnAuthSuccess(conn *Conn) error

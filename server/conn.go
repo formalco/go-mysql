@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/packet"
+	"github.com/samber/mo"
 )
 
 // Conn acts like a MySQL server connection, you can use MySQL client to communicate with it.
@@ -24,12 +25,11 @@ type Conn struct {
 	warnings       uint16
 	salt           []byte // should be 8 + 12 for auth-plugin-data-part-1 and auth-plugin-data-part-2
 
-	authHandler          AuthenticationHandler
-	user                 string
-	credential           Credential
-	cachingSha2FullAuth  bool
-	matchedPasswordIndex int
-	passwordMatched      bool
+	authHandler         AuthenticationHandler
+	user                string
+	credential          Credential
+	cachingSha2FullAuth bool
+	matchedPassword     mo.Option[string]
 
 	h Handler
 
@@ -143,17 +143,14 @@ func (c *Conn) GetUser() string {
 	return c.user
 }
 
-// MatchedPasswordIndex returns the index of the password verified by the default
-// authentication provider in the Credential.Passwords returned for this connection.
-// Callers associating passwords with metadata must retain that same credential
-// snapshot rather than fetch credentials again.
-// The index is available in AuthenticationHandler.OnAuthSuccess. If multiple
-// entries contain the same password, the first matching index is returned.
-// ok is false if no password match was recorded, including when a custom
-// authentication provider does not delegate verification to the default provider.
+// MatchedPassword returns the credential string verified by the default
+// authentication provider for this connection. It is available in OnAuthSuccess
+// and must not be logged. The option is empty when no password match was
+// recorded, which distinguishes a matched empty password from no match at all.
+// Custom providers report no match unless they delegate to the default provider.
 // A match does not mean that OnAuthSuccess has accepted the connection.
-func (c *Conn) MatchedPasswordIndex() (index int, ok bool) {
-	return c.matchedPasswordIndex, c.passwordMatched
+func (c *Conn) MatchedPassword() mo.Option[string] {
+	return c.matchedPassword
 }
 
 func (c *Conn) Capability() uint32 {

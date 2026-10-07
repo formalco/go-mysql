@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/pingcap/errors"
+	"github.com/samber/mo"
 )
 
 var (
@@ -30,7 +31,7 @@ func isEmptyPassword(authData []byte) bool {
 }
 
 func (c *Conn) compareAuthData(authPluginName string, clientAuthData []byte) error {
-	c.matchedPasswordIndex, c.passwordMatched = 0, false
+	c.matchedPassword = mo.None[string]()
 
 	if authPluginName != c.credential.AuthPluginName {
 		err := c.writeAuthSwitchRequest(c.credential.AuthPluginName)
@@ -42,7 +43,7 @@ func (c *Conn) compareAuthData(authPluginName string, clientAuthData []byte) err
 
 	err := c.serverConf.authProvider.Authenticate(c, authPluginName, clientAuthData)
 	if err != nil {
-		c.matchedPasswordIndex, c.passwordMatched = 0, false
+		c.matchedPassword = mo.None[string]()
 	}
 	return err
 }
@@ -87,7 +88,7 @@ func (c *Conn) compareNativePasswordAuthData(clientAuthData []byte, credential C
 		return c.compareEmptyPassword(credential)
 	}
 
-	for i, password := range credential.Passwords {
+	for _, password := range credential.Passwords {
 		hash, err := credential.hashPassword(password)
 		if err != nil {
 			continue
@@ -97,7 +98,7 @@ func (c *Conn) compareNativePasswordAuthData(clientAuthData []byte, credential C
 			continue
 		}
 		if mysql.CompareNativePassword(clientAuthData, decoded, c.salt) {
-			c.matchedPasswordIndex, c.passwordMatched = i, true
+			c.matchedPassword = mo.Some(password)
 			return nil
 		}
 	}
@@ -132,7 +133,7 @@ func (c *Conn) compareSha256PasswordAuthData(clientAuthData []byte, credential C
 			clientAuthData = clientAuthData[:l-1]
 		}
 	}
-	for i, password := range credential.Passwords {
+	for _, password := range credential.Passwords {
 		hash, err := credential.hashPassword(password)
 		if err != nil {
 			continue
@@ -142,7 +143,7 @@ func (c *Conn) compareSha256PasswordAuthData(clientAuthData []byte, credential C
 			continue
 		}
 		if check {
-			c.matchedPasswordIndex, c.passwordMatched = i, true
+			c.matchedPassword = mo.Some(password)
 			return nil
 		}
 	}
@@ -159,9 +160,9 @@ func (c *Conn) compareCacheSha2PasswordAuthData(clientAuthData []byte) error {
 	if ok {
 		// Scramble validation
 		if scrambleValidation(cached.([]byte), c.salt, clientAuthData) {
-			// Resolve against this connection's credentials: a cached index could
-			// refer to a different password after credentials are reordered or removed.
-			for i, password := range c.credential.Passwords {
+			// Resolve against this connection's credentials so a removed password
+			// cannot be accepted from the cache.
+			for _, password := range c.credential.Passwords {
 				first := sha256.Sum256([]byte(password))
 				second := sha256.Sum256(first[:])
 				if subtle.ConstantTimeCompare(second[:], cached.([]byte)) == 1 {
@@ -169,7 +170,7 @@ func (c *Conn) compareCacheSha2PasswordAuthData(clientAuthData []byte) error {
 					if err := c.writeAuthMoreDataFastAuth(); err != nil {
 						return err
 					}
-					c.matchedPasswordIndex, c.passwordMatched = i, true
+					c.matchedPassword = mo.Some(password)
 					return nil
 				}
 			}
@@ -184,8 +185,8 @@ func (c *Conn) compareCacheSha2PasswordAuthData(clientAuthData []byte) error {
 }
 
 func (c *Conn) compareEmptyPassword(credential Credential) error {
-	if i := slices.Index(credential.Passwords, ""); i >= 0 {
-		c.matchedPasswordIndex, c.passwordMatched = i, true
+	if slices.Contains(credential.Passwords, "") {
+		c.matchedPassword = mo.Some("")
 		return nil
 	}
 	return ErrAccessDeniedNoPassword

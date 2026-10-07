@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/pingcap/errors"
+	"github.com/samber/mo"
 )
 
 func (c *Conn) handleAuthSwitchResponse() error {
@@ -78,14 +79,14 @@ func (c *Conn) checkSha2CacheCredentials(clientAuthData []byte, credential Crede
 		return c.compareEmptyPassword(credential)
 	}
 
-	for i, password := range credential.Passwords {
+	for _, password := range credential.Passwords {
 		hash, err := credential.hashPassword(password)
 		if err != nil {
 			continue
 		}
 		match, err := auth.CheckHashingPassword([]byte(hash), string(clientAuthData), mysql.AUTH_CACHING_SHA2_PASSWORD)
 		if match && err == nil {
-			c.matchedPasswordIndex, c.passwordMatched = i, true
+			c.matchedPassword = mo.Some(password)
 			return nil
 		}
 	}
