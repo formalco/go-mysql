@@ -14,7 +14,7 @@ import (
 type labeledAuthenticationHandler struct {
 	username   string
 	credential server.Credential
-	labels     []string
+	labels     map[string]string
 }
 
 func (h *labeledAuthenticationHandler) GetCredential(username string) (server.Credential, bool, error) {
@@ -22,18 +22,21 @@ func (h *labeledAuthenticationHandler) GetCredential(username string) (server.Cr
 }
 
 func (h *labeledAuthenticationHandler) OnAuthSuccess(c *server.Conn) error {
-	index, ok := c.MatchedPasswordIndex()
-	if !ok || index < 0 || index >= len(h.labels) {
+	password, ok := c.MatchedPassword().Get()
+	if !ok {
 		return fmt.Errorf("matched credential metadata unavailable")
 	}
-	// Use the original snapshot; a fresh lookup could have a different order.
-	log.Printf("authenticated credential: %s", h.labels[index])
+	label, found := h.labels[password]
+	if !found {
+		return fmt.Errorf("matched credential metadata unavailable")
+	}
+	log.Printf("authenticated credential: %s", label)
 	return nil
 }
 
 func (h *labeledAuthenticationHandler) OnAuthFailure(*server.Conn, error) {}
 
-func ExampleConn_MatchedPasswordIndex() {
+func ExampleConn_MatchedPassword() {
 	listener, err := net.Listen("tcp", "127.0.0.1:3306")
 	if err != nil {
 		log.Print(err)
@@ -56,7 +59,7 @@ func ExampleConn_MatchedPasswordIndex() {
 			Passwords:      []string{"previous-secret", "current-secret"},
 			AuthPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD,
 		},
-		labels: []string{"previous", "current"},
+		labels: map[string]string{"previous-secret": "previous", "current-secret": "current"},
 	}
 	conn, err := server.NewDefaultServer().NewCustomizedConn(rawConn, handler, &server.EmptyHandler{})
 	if err != nil {

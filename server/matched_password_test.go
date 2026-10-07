@@ -12,16 +12,25 @@ import (
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/test_util/test_keys"
+	"github.com/samber/mo"
 	"github.com/stretchr/testify/require"
 )
 
 type matchedPasswordHandler struct {
 	credential Credential
-	index      int
-	matched    bool
+	matched    mo.Option[string]
 	success    bool
 	fullAuth   bool
 	reject     error
+}
+
+// expectedMatch is the option a handler should observe for a case that either
+// matched the given password or did not match at all.
+func expectedMatch(password string, matched bool) mo.Option[string] {
+	if matched {
+		return mo.Some(password)
+	}
+	return mo.None[string]()
 }
 
 func (h *matchedPasswordHandler) GetCredential(string) (Credential, bool, error) {
@@ -29,14 +38,14 @@ func (h *matchedPasswordHandler) GetCredential(string) (Credential, bool, error)
 }
 
 func (h *matchedPasswordHandler) OnAuthSuccess(c *Conn) error {
-	h.index, h.matched = c.MatchedPasswordIndex()
+	h.matched = c.MatchedPassword()
 	h.success = true
 	h.fullAuth = c.cachingSha2FullAuth
 	return h.reject
 }
 
 func (h *matchedPasswordHandler) OnAuthFailure(c *Conn, _ error) {
-	h.index, h.matched = c.MatchedPasswordIndex()
+	h.matched = c.MatchedPassword()
 	h.fullAuth = c.cachingSha2FullAuth
 }
 
@@ -91,21 +100,20 @@ func runMatchedPasswordHandshake(t *testing.T, s *Server, l *net.TCPListener, h 
 	return clientErr
 }
 
-func TestMatchedPasswordIndexHandshake(t *testing.T) {
+func TestMatchedPasswordHandshake(t *testing.T) {
 	methods := []string{mysql.AUTH_NATIVE_PASSWORD, mysql.AUTH_SHA256_PASSWORD, mysql.AUTH_CACHING_SHA2_PASSWORD}
 	cases := []struct {
 		name      string
 		passwords []string
 		password  string
-		index     int
 		matched   bool
 	}{
-		{"first", []string{"selected", "other"}, "selected", 0, true},
-		{"later", []string{"other", "selected"}, "selected", 1, true},
-		{"duplicate", []string{"other", "selected", "selected"}, "selected", 1, true},
-		{"empty", []string{"other", "", ""}, "", 1, true},
-		{"wrong", []string{"other", "selected"}, "wrong", 0, false},
-		{"empty_rejected", []string{"other", "selected"}, "", 0, false},
+		{"first", []string{"selected", "other"}, "selected", true},
+		{"later", []string{"other", "selected"}, "selected", true},
+		{"duplicate", []string{"other", "selected", "selected"}, "selected", true},
+		{"empty", []string{"other", "", ""}, "", true},
+		{"wrong", []string{"other", "selected"}, "wrong", false},
+		{"empty_rejected", []string{"other", "selected"}, "", false},
 	}
 	for _, method := range methods {
 		for _, useTLS := range []bool{false, true} {
@@ -129,8 +137,7 @@ func TestMatchedPasswordIndexHandshake(t *testing.T) {
 							require.ErrorContains(t, err, "Access denied")
 						}
 						require.Equal(t, tc.matched, h.success)
-						require.Equal(t, tc.matched, h.matched)
-						require.Equal(t, tc.index, h.index)
+						require.Equal(t, expectedMatch(tc.password, tc.matched), h.matched)
 					})
 				}
 			}
@@ -138,22 +145,21 @@ func TestMatchedPasswordIndexHandshake(t *testing.T) {
 	}
 }
 
-func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
+func TestMatchedPasswordCachingSHA2(t *testing.T) {
 	for _, useTLS := range []bool{false, true} {
 		t.Run(fmt.Sprintf("tls=%t", useTLS), func(t *testing.T) {
 			cases := []struct {
 				name      string
 				passwords []string
 				password  string
-				index     int
 				matched   bool
 				fullAuth  bool
 			}{
-				{"cache_hit", []string{"other", "selected"}, "selected", 1, true, false},
-				{"reordered", []string{"selected", "other"}, "selected", 0, true, false},
-				{"duplicates", []string{"other", "selected", "selected"}, "selected", 1, true, false},
-				{"removed", []string{"replacement", "other"}, "selected", 0, false, true},
-				{"replacement", []string{"replacement", "other"}, "other", 1, true, true},
+				{"cache_hit", []string{"other", "selected"}, "selected", true, false},
+				{"reordered", []string{"selected", "other"}, "selected", true, false},
+				{"duplicates", []string{"other", "selected", "selected"}, "selected", true, false},
+				{"removed", []string{"replacement", "other"}, "selected", false, true},
+				{"replacement", []string{"replacement", "other"}, "other", true, true},
 			}
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
@@ -164,8 +170,7 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 					}}
 					require.NoError(t, runMatchedPasswordHandshake(t, s, l, warmup, "selected", useTLS))
 					require.True(t, warmup.success)
-					require.True(t, warmup.matched)
-					require.Equal(t, 1, warmup.index)
+					require.Equal(t, mo.Some("selected"), warmup.matched)
 					require.True(t, warmup.fullAuth)
 
 					h := &matchedPasswordHandler{credential: Credential{Passwords: tc.passwords, AuthPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD}}
@@ -176,8 +181,7 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 						require.ErrorContains(t, err, "Access denied")
 					}
 					require.Equal(t, tc.matched, h.success)
-					require.Equal(t, tc.matched, h.matched)
-					require.Equal(t, tc.index, h.index)
+					require.Equal(t, expectedMatch(tc.password, tc.matched), h.matched)
 					require.Equal(t, tc.fullAuth, h.fullAuth)
 
 					if tc.name == "replacement" {
@@ -185,8 +189,7 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 						next := &matchedPasswordHandler{credential: h.credential}
 						require.NoError(t, runMatchedPasswordHandshake(t, s, l, next, tc.password, useTLS))
 						require.True(t, next.success)
-						require.True(t, next.matched)
-						require.Equal(t, tc.index, next.index)
+						require.Equal(t, mo.Some(tc.password), next.matched)
 						require.False(t, next.fullAuth)
 					}
 				})
@@ -195,7 +198,7 @@ func TestMatchedPasswordIndexCachingSHA2(t *testing.T) {
 	}
 }
 
-func TestMatchedPasswordIndexOnAuthSuccessRejection(t *testing.T) {
+func TestMatchedPasswordOnAuthSuccessRejection(t *testing.T) {
 	s := NewServer("8.0.12", mysql.DEFAULT_COLLATION_ID, mysql.AUTH_NATIVE_PASSWORD, nil, nil)
 	l := newMatchedPasswordListener(t)
 	h := &matchedPasswordHandler{
@@ -205,23 +208,19 @@ func TestMatchedPasswordIndexOnAuthSuccessRejection(t *testing.T) {
 	err := runMatchedPasswordHandshake(t, s, l, h, "selected", false)
 	require.ErrorContains(t, err, h.reject.Error())
 	require.True(t, h.success)
-	require.True(t, h.matched)
-	require.Equal(t, 1, h.index)
+	require.Equal(t, mo.Some("selected"), h.matched)
 }
 
-func TestMatchedPasswordIndexUnavailable(t *testing.T) {
+func TestMatchedPasswordUnavailable(t *testing.T) {
 	c := &Conn{}
-	index, matched := c.MatchedPasswordIndex()
-	require.Zero(t, index)
-	require.False(t, matched)
+	require.Equal(t, mo.None[string](), c.MatchedPassword())
 
 	c.credential = Credential{Passwords: []string{"selected"}, AuthPluginName: mysql.AUTH_NATIVE_PASSWORD}
 	c.salt = []byte("01234567890123456789")
 	c.serverConf = &Server{authProvider: &DefaultAuthenticationProvider{}}
 	require.NoError(t, c.compareAuthData(mysql.AUTH_NATIVE_PASSWORD, mysql.CalcNativePassword(c.salt, []byte("selected"))))
 	require.ErrorIs(t, c.compareAuthData(mysql.AUTH_NATIVE_PASSWORD, mysql.CalcNativePassword(c.salt, []byte("wrong"))), ErrAccessDenied)
-	_, matched = c.MatchedPasswordIndex()
-	require.False(t, matched)
+	require.Equal(t, mo.None[string](), c.MatchedPassword())
 }
 
 type matchedPasswordProvider struct {
@@ -233,7 +232,7 @@ func (p *matchedPasswordProvider) Authenticate(c *Conn, method string, data []by
 	return p.authenticate(c, method, data)
 }
 
-func TestMatchedPasswordIndexCustomProvider(t *testing.T) {
+func TestMatchedPasswordCustomProvider(t *testing.T) {
 	for _, delegate := range []bool{false, true} {
 		for _, reject := range []bool{false, true} {
 			t.Run(fmt.Sprintf("delegate=%t/reject=%t", delegate, reject), func(t *testing.T) {
@@ -260,11 +259,7 @@ func TestMatchedPasswordIndexCustomProvider(t *testing.T) {
 				} else {
 					require.NoError(t, err)
 				}
-				index, matched := c.MatchedPasswordIndex()
-				require.Equal(t, delegate && !reject, matched)
-				if matched {
-					require.Equal(t, 1, index)
-				}
+				require.Equal(t, expectedMatch("selected", delegate && !reject), c.MatchedPassword())
 			})
 		}
 	}
