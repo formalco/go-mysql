@@ -32,6 +32,16 @@ func (c *Conn) readHandshakeResponse() error {
 		return err
 	}
 
+	if authenticator, ok := c.authHandler.(ConnectionAuthenticator); ok {
+		authenticated, err := authenticator.AuthenticateConnection(c)
+		if err != nil {
+			return err
+		}
+		if authenticated {
+			return c.readConnectAttributes(data, pos)
+		}
+	}
+
 	cont, err := c.handleAuthMatch()
 	if err != nil {
 		return err
@@ -40,17 +50,21 @@ func (c *Conn) readHandshakeResponse() error {
 		return nil
 	}
 
-	// read connection attributes
-	if c.capability&mysql.CLIENT_CONNECT_ATTRS > 0 {
-		// readAttributes returns new position for further processing of data
-		_, err = c.readAttributes(data, pos)
-		if err != nil {
-			return err
-		}
+	if err := c.readConnectAttributes(data, pos); err != nil {
+		return err
 	}
 
 	// try to authenticate the client
 	return c.compareAuthData(c.authPluginName, authData)
+}
+
+func (c *Conn) readConnectAttributes(data []byte, pos int) error {
+	if c.capability&mysql.CLIENT_CONNECT_ATTRS == 0 {
+		return nil
+	}
+	// readAttributes returns new position for further processing of data
+	_, err := c.readAttributes(data, pos)
+	return err
 }
 
 func (c *Conn) readFirstPart() ([]byte, int, error) {
