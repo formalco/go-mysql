@@ -31,6 +31,18 @@ type AuthenticationHandler interface {
 	OnAuthFailure(conn *Conn, err error)
 }
 
+// ConnectionAuthenticator is an optional extension of AuthenticationHandler for
+// authenticating a client from its connection rather than a password, e.g. by
+// the client certificate it presented in the TLS handshake.
+type ConnectionAuthenticator interface {
+	// AuthenticateConnection is called after the client's handshake response,
+	// once any TLS upgrade has completed, and before GetCredential.
+	// Return true to accept the client without a password exchange; OnAuthSuccess
+	// is then called as usual. Return false to authenticate with a password.
+	// Return an error to reject the connection.
+	AuthenticateConnection(conn *Conn) (bool, error)
+}
+
 func NewInMemoryAuthenticationHandler(defaultAuthMethod ...string) *InMemoryAuthenticationHandler {
 	d := mysql.AUTH_CACHING_SHA2_PASSWORD
 	if len(defaultAuthMethod) > 0 {
