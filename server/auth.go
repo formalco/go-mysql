@@ -56,7 +56,8 @@ func (c *Conn) acquireCredential() error {
 	if err != nil {
 		return err
 	}
-	if !found || len(credential.Passwords) == 0 {
+	_, authenticatesPasswords := c.authHandler.(PasswordAuthenticator)
+	if !found || (len(credential.Passwords) == 0 && !authenticatesPasswords) {
 		return mysql.NewDefaultError(mysql.ER_NO_SUCH_USER, c.user, c.RemoteAddr().String())
 	}
 	c.credential = credential

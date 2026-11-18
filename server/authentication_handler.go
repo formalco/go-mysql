@@ -43,6 +43,15 @@ type ConnectionAuthenticator interface {
 	AuthenticateConnection(conn *Conn) (bool, error)
 }
 
+// PasswordAuthenticator optionally validates passwords for AuthenticationHandler.
+// GetCredential must find the user but may omit Passwords.
+type PasswordAuthenticator interface {
+	// AuthenticatePassword checks non-empty plaintext passwords during caching_sha2_password full auth.
+	// Return true to accept, false to check Credential.Passwords, or an error to reject.
+	// Acceptance bypasses caching and leaves Conn.MatchedPassword unset.
+	AuthenticatePassword(conn *Conn, password string) (bool, error)
+}
+
 func NewInMemoryAuthenticationHandler(defaultAuthMethod ...string) *InMemoryAuthenticationHandler {
 	d := mysql.AUTH_CACHING_SHA2_PASSWORD
 	if len(defaultAuthMethod) > 0 {
