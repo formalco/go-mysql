@@ -21,8 +21,7 @@ type AuthenticationHandler interface {
 	GetCredential(username string) (credential Credential, found bool, err error)
 
 	// OnAuthSuccess is called after successful authentication, before the OK packet.
-	// Conn.MatchedPassword identifies the password verified by the default provider;
-	// it is None when a PasswordAuthenticator accepted the password.
+	// Conn.MatchedPassword identifies the password verified by the default provider.
 	// Return an error to reject the connection (error will be sent to client instead of OK).
 	// Return nil to proceed with sending the OK packet.
 	OnAuthSuccess(conn *Conn) error
@@ -44,15 +43,12 @@ type ConnectionAuthenticator interface {
 	AuthenticateConnection(conn *Conn) (bool, error)
 }
 
-// PasswordAuthenticator extends AuthenticationHandler to validate passwords
-// that GetCredential cannot provide, such as signed tokens.
-//
-// GetCredential must still find the user, but may return no Passwords.
+// PasswordAuthenticator optionally validates passwords for AuthenticationHandler.
+// GetCredential must find the user but may omit Passwords.
 type PasswordAuthenticator interface {
-	// AuthenticatePassword receives the non-empty plaintext password during
-	// caching_sha2_password full authentication.
-	// Return true to accept without caching; Conn.MatchedPassword remains None.
-	// Return false to check Credential.Passwords, or an error to reject.
+	// AuthenticatePassword checks non-empty plaintext passwords during caching_sha2_password full auth.
+	// Return true to accept, false to check Credential.Passwords, or an error to reject.
+	// Acceptance bypasses caching and leaves Conn.MatchedPassword unset.
 	AuthenticatePassword(conn *Conn, password string) (bool, error)
 }
 

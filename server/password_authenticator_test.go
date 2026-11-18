@@ -71,7 +71,7 @@ func serveTokenHandler(t *testing.T, h *tokenHandler) func(password string, useT
 		h.matched.Store(nil)
 		c, err := client.Connect(l.Addr().String(), "user", password, "", func(c *client.Conn) error {
 			if useTLS {
-				c.SetTLSConfig(&tls.Config{InsecureSkipVerify: true}) // Test certificate only.
+				c.SetTLSConfig(&tls.Config{InsecureSkipVerify: true})
 			}
 			return nil
 		})
@@ -97,7 +97,6 @@ func TestPasswordAuthenticator(t *testing.T) {
 		require.ErrorContains(t, connect("wrong", useTLS), "Access denied")
 	}
 
-	// Tokens must be revalidated on every connection.
 	calls := h.calls.Load()
 	require.NoError(t, connect("token", true))
 	require.NoError(t, connect("token", true))
