@@ -18,9 +18,10 @@ import (
 )
 
 type tokenHandler struct {
-	passwords []string
-	calls     atomic.Int32
-	matched   atomic.Pointer[mo.Option[string]]
+	passwords       []string
+	calls           atomic.Int32
+	credentialCalls atomic.Int32
+	matched         atomic.Pointer[mo.Option[string]]
 }
 
 func (h *tokenHandler) AuthenticatePassword(_ *Conn, password string) (bool, error) {
@@ -35,6 +36,7 @@ func (h *tokenHandler) AuthenticatePassword(_ *Conn, password string) (bool, err
 }
 
 func (h *tokenHandler) GetCredential(string) (Credential, bool, error) {
+	h.credentialCalls.Add(1)
 	return Credential{Passwords: h.passwords, AuthPluginName: mysql.AUTH_CACHING_SHA2_PASSWORD}, true, nil
 }
 
@@ -107,10 +109,13 @@ func TestPasswordAuthenticatorNoPasswords(t *testing.T) {
 	h := &tokenHandler{}
 	connect := serveTokenHandler(t, h)
 
-	require.NoError(t, connect("token", true))
-	require.ErrorContains(t, connect("wrong", true), "Access denied")
-	require.ErrorContains(t, connect("", true), "Access denied")
-	require.ErrorContains(t, connect("", false), "Access denied")
+	for _, useTLS := range []bool{true, false} {
+		calls := h.credentialCalls.Load()
+		require.NoError(t, connect("token", useTLS))
+		require.Equal(t, calls+1, h.credentialCalls.Load())
+		require.ErrorContains(t, connect("wrong", useTLS), "Access denied")
+		require.ErrorContains(t, connect("", useTLS), "Access denied")
+	}
 }
 
 func TestPasswordAuthenticatorNoPasswordsFullAuthEmptyPassword(t *testing.T) {

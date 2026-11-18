@@ -25,9 +25,6 @@ func (c *Conn) handleAuthSwitchResponse() error {
 }
 
 func (c *Conn) handleCachingSha2PasswordFullAuth(authData []byte) error {
-	if err := c.acquireCredential(); err != nil {
-		return err
-	}
 	if tlsConn, ok := c.Conn.Conn.(*tls.Conn); ok {
 		if !tlsConn.ConnectionState().HandshakeComplete {
 			return errors.New("incomplete TSL handshake")
@@ -66,11 +63,8 @@ func (c *Conn) handleCachingSha2PasswordFullAuth(authData []byte) error {
 	}
 	if authenticator, ok := c.authHandler.(PasswordAuthenticator); ok && !isEmptyPassword(authData) {
 		authenticated, err := authenticator.AuthenticatePassword(c, string(authData))
-		if err != nil {
+		if err != nil || authenticated {
 			return err
-		}
-		if authenticated {
-			return nil
 		}
 	}
 	err := c.checkSha2CacheCredentials(authData, c.credential)
