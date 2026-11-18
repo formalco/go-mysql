@@ -64,6 +64,15 @@ func (c *Conn) handleCachingSha2PasswordFullAuth(authData []byte) error {
 			authData = authData[:l-1]
 		}
 	}
+	if authenticator, ok := c.authHandler.(PasswordAuthenticator); ok && !isEmptyPassword(authData) {
+		authenticated, err := authenticator.AuthenticatePassword(c, string(authData))
+		if err != nil {
+			return err
+		}
+		if authenticated {
+			return nil
+		}
+	}
 	err := c.checkSha2CacheCredentials(authData, c.credential)
 	if err != nil {
 		return err
