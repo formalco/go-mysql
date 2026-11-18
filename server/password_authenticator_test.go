@@ -17,8 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// tokenHandler accepts the password "token", rejects the password "rejected", and otherwise
-// checks the password against passwords.
 type tokenHandler struct {
 	passwords []string
 	calls     atomic.Int32
@@ -48,8 +46,6 @@ func (h *tokenHandler) OnAuthSuccess(c *Conn) error {
 
 func (*tokenHandler) OnAuthFailure(*Conn, error) {}
 
-// serveTokenHandler returns a function that connects to a server authenticating with h, over TLS
-// when useTLS is set and with RSA-encrypted passwords otherwise.
 func serveTokenHandler(t *testing.T, h *tokenHandler) func(password string, useTLS bool) error {
 	cert, err := tls.X509KeyPair(test_keys.CertPem, test_keys.KeyPem)
 	require.NoError(t, err)
@@ -101,7 +97,7 @@ func TestPasswordAuthenticator(t *testing.T) {
 		require.ErrorContains(t, connect("wrong", useTLS), "Access denied")
 	}
 
-	// Accepted passwords are not cached, so the second connection repeats full authentication.
+	// Tokens must be revalidated on every connection.
 	calls := h.calls.Load()
 	require.NoError(t, connect("token", true))
 	require.NoError(t, connect("token", true))

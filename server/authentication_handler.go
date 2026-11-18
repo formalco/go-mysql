@@ -44,24 +44,15 @@ type ConnectionAuthenticator interface {
 	AuthenticateConnection(conn *Conn) (bool, error)
 }
 
-// PasswordAuthenticator is an optional extension of AuthenticationHandler for
-// authenticating a client from a plaintext password that GetCredential can't
-// list, e.g. a self-contained signed token.
+// PasswordAuthenticator extends AuthenticationHandler to validate passwords
+// that GetCredential cannot provide, such as signed tokens.
 //
-// When the handler implements it, GetCredential may return a found credential
-// with no Passwords. Such a credential matches no password, including the
-// empty one, so only AuthenticatePassword can accept the client.
+// GetCredential must still find the user, but may return no Passwords.
 type PasswordAuthenticator interface {
-	// AuthenticatePassword is called during caching_sha2_password full
-	// authentication with the password the client sent, in cleartext over TLS
-	// or decrypted with the server's RSA key otherwise. It is not called for an
-	// empty password, for other authentication plugins, or when the client
-	// authenticates from the caching_sha2_password cache, which only holds
-	// passwords from GetCredential.
-	// Return true to accept the client; the password is not cached and
-	// Conn.MatchedPassword is None. Return false to check the password
-	// against the credential's Passwords. Return an error to reject the client
-	// without checking them.
+	// AuthenticatePassword receives the non-empty plaintext password during
+	// caching_sha2_password full authentication.
+	// Return true to accept without caching; Conn.MatchedPassword remains None.
+	// Return false to check Credential.Passwords, or an error to reject.
 	AuthenticatePassword(conn *Conn, password string) (bool, error)
 }
 
